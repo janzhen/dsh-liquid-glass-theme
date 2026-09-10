@@ -1,0 +1,12 @@
+# dsh-liquid-glass-theme bundle patch
+#
+# Installed through the official CLI:
+#
+#   dsh plugin --profile web add link:<this directory>
+#
+# The command reconciles `dsh.profile.bundles` against installed packages and
+# appends this plugin row to the bundle stack; the profile boot merges the
+# patch (a single insert of the plugin row). No manual profile edits needed.
+- insert:
+    - id: liquid-glass
+      name: 'dsh-liquid-glass-theme'
