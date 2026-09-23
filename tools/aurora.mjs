@@ -293,14 +293,28 @@ function grid(step = 16) {
 	return pts;
 }
 
-/** Per-build measurement of one palette: contrast per stack, coverage, dead zone. */
+/**
+ * Composited luminance at one blob's own centre: what that mass actually reads
+ * as once the base gradient and every layer above it have been painted.
+ * @param build - the parsed build.
+ * @param palette - "light" or "dark".
+ * @param index - row in the blob table.
+ * @returns the WCAG relative luminance.
+ */
+function massLuminance(build, palette, index) {
+	const [w, h] = VIEWPORT;
+	const b = build.aurora[palette + "Blobs"][index];
+	return luminance(backdropAt(build, palette, (b.x / 100) * w, (b.y / 100) * h, w, h));
+}
+
+/** Per-build measurement of one palette: contrast per stack, coverage, dead zone, mass balance. */
 function measureBuild(build, palette, pts) {
 	const [w, h] = VIEWPORT;
 	const tokens = build.tokens[palette];
 	const text = rgba(tokens[TEXT]).slice(0, 3);
 	const blobs = build.aurora[palette + "Blobs"];
 	const backdrops = pts.map(([x, y]) => backdropAt(build, palette, x, y, w, h));
-	const out = { coverage: 0, dead: 0, contrast: {} };
+	const out = { coverage: 0, dead: 0, contrast: {}, balance: massLuminance(build, palette, 0) / massLuminance(build, palette, 1) };
 	for (const [label, sheets] of STACKS) out.contrast[label] = Infinity;
 	for (let i = 0; i < pts.length; i++) {
 		const cov = coverageAt(blobs, pts[i][0], pts[i][1], w, h);
@@ -321,7 +335,7 @@ function measure(file, builds) {
 	const pts = grid();
 	const acc = { light: {}, dark: {} };
 	for (const palette of ["light", "dark"]) {
-		acc[palette] = { stacks: {}, coverage: [], dead: [] };
+		acc[palette] = { stacks: {}, coverage: [], dead: [], balance: [] };
 		for (const [label] of STACKS) acc[palette].stacks[label] = [];
 	}
 	let sample = null;
@@ -333,6 +347,7 @@ function measure(file, builds) {
 			for (const [label] of STACKS) acc[palette].stacks[label].push(m.contrast[label]);
 			acc[palette].coverage.push(m.coverage);
 			acc[palette].dead.push(m.dead);
+			acc[palette].balance.push(m.balance);
 		}
 	}
 	return { acc, sample };
@@ -483,7 +498,12 @@ if (cmd === "measure") {
 		console.log(palette.toUpperCase());
 		console.log(rows.join("\n"));
 		console.log(`  ${"极光覆盖 coverage".padEnd(24)} mean ${(cov.reduce((a, b) => a + b) / cov.length).toFixed(3)}   ` +
-			`dead zone ${(dead.reduce((a, b) => a + b) / dead.length * 100).toFixed(0)}% (min ${(Math.min(...dead) * 100).toFixed(0)}%, max ${(Math.max(...dead) * 100).toFixed(0)}%)\n`);
+			`dead zone ${(dead.reduce((a, b) => a + b) / dead.length * 100).toFixed(0)}% (min ${(Math.min(...dead) * 100).toFixed(0)}%, max ${(Math.max(...dead) * 100).toFixed(0)}%)`);
+		/* Composited luminance of the green left mass over the blue right mass:
+		 * the palette's own balance, with no text or surface in the way. */
+		const bal = acc[palette].balance;
+		console.log(`  ${"绿块/蓝块 balance".padEnd(24)} mean ${(bal.reduce((a, b) => a + b) / bal.length).toFixed(2)}x   ` +
+			`(min ${Math.min(...bal).toFixed(2)}x, max ${Math.max(...bal).toFixed(2)}x)\n`);
 	}
 	console.log("blob table of build seed 1000 (radius px, position %, fade stop %, colour):");
 	for (const palette of ["light", "dark"]) {

@@ -34,6 +34,9 @@
  *            through underneath it (`worst`). Blur must not move this.
  *   aurora — the card's large-scale backdrop variation as a fraction of the
  *            same region with no card at all: 0 would be an opaque panel.
+ *            Reported only where the card-free backdrop has structure to
+ *            transmit; over a flat stretch the ratio is one near-zero number
+ *            over another, so it prints `flat` instead.
  *
  *   node tools/preview-glass.mjs [--file=lib/client.js] [--seed=7]
  *                                [--states="none|backdrop-filter:blur(12px) saturate(160%)"]
@@ -68,6 +71,9 @@ const VIEWPORT = [1440, 900];
  * the glyph cores that carry the reading signal only exist at Retina scale —
  * which is also the display the UI is designed for. */
 const SCALE = 2;
+/* Below this card-free coarse luminance sd the backdrop behind the card has no
+ * large-scale structure to transmit, so the retained fraction is not reported. */
+const CARD_FREE_SD_FLOOR = 0.01;
 const PROFILE = process.env.DSH_PROFILE_DIR ?? path.join(process.env.DSH_HOME ?? "", "profiles", process.env.DSH_PROFILE ?? "web");
 
 /* ------------------------------------------------------------- product -- */
@@ -552,6 +558,8 @@ async function measure(page) {
 	const card = { x: 14 * SCALE, y: 14 * SCALE, w: (geometry.rect.w - 28) * SCALE, h: (geometry.rect.h - 28) * SCALE };
 	const area = card.w * card.h;
 	const ghost = differences(variants.full, variants["no-bg"], card);
+	const throughCard = coarseSd(variants.bare, card, 24 * SCALE);
+	const cardFree = coarseSd(variants["no-card"], card, 24 * SCALE);
 	const out = {
 		ghostMean: mean(ghost),
 		ghostP95: percentile(ghost, 0.95),
@@ -559,8 +567,11 @@ async function measure(page) {
 		ghostArea: ghost.length / area,
 		diff: {},
 		/* Large-scale backdrop variation the card lets through, against the same
-		 * region with no card at all: 0 would be an opaque panel. */
-		retained: coarseSd(variants.bare, card, 24 * SCALE) / coarseSd(variants["no-card"], card, 24 * SCALE)
+		 * region with no card at all: 0 would be an opaque panel. Reported only
+		 * where there is structure to transmit — over a flat stretch of backdrop
+		 * the ratio is one near-zero number over another and says nothing. */
+		retained: cardFree >= CARD_FREE_SD_FLOOR ? throughCard / cardFree : null,
+		retainedRaw: [throughCard, cardFree]
 	};
 	/* Nominal text contrast. A glyph covers a small part of its line box, so the
 	 * glyph pixels are found by differencing the card against the same card with
@@ -666,7 +677,7 @@ for (const state of states) {
 			`${out.ghostMean.toFixed(2)} / ${out.ghostP95.toFixed(2)} / ${out.ghostMax.toFixed(2)}`.padEnd(22) +
 			`${(out.ghostArea * 100).toFixed(0)}%`.padEnd(7) +
 			`${surface.toFixed(1)} / ${worst.toFixed(1)}`.padEnd(17) +
-			`${(out.retained * 100).toFixed(0)}%   [backdrop-filter: ${filter}]`
+			`${out.retained === null ? "flat" : (out.retained * 100).toFixed(0) + "%"} (${out.retainedRaw[0].toFixed(3)}/${out.retainedRaw[1].toFixed(3)})   [backdrop-filter: ${filter}]`
 		);
 		shots[`${state.name}|${palette}`] = { rect, images, state };
 		await page.close();
