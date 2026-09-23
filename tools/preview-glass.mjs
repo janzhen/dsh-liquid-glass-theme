@@ -406,9 +406,11 @@ function escapeHtml(text) {
  * @param opts.sheets - theme facet name to CSS text.
  * @param opts.productCss - the product's own CSS text.
  * @param opts.state - declarations injected under {@link PREVIEW_SELECTOR}.
+ * @param opts.dark - render the dark palette; the attribute is in the markup so
+ * the page paints dark from its first frame, the way the app boots.
  * @returns the HTML document.
  */
-function sceneHtml({ sheets, productCss, state }) {
+function sceneHtml({ sheets, productCss, state, dark }) {
 	const themeCss = Object.entries(sheets)
 		.filter(([name]) => name !== PREVIEW_SHEET)
 		.map(([, css]) => css)
@@ -435,7 +437,7 @@ function sceneHtml({ sheets, productCss, state }) {
 </style>
 <style>${stateCss}</style>
 </head>
-<body>
+<body${dark ? ' data-ds-dark-theme=""' : ""}>
   <div id="frame"><div id="root"><div id="column">
     <div id="prose">${PROSE.map((p) => `<p class="bgtext">${p.replace(/`([^`]*)`/g, "<code>$1</code>")}</p>`).join("")}</div>
     <div id="changes" data-changed-files class="hz8-rW_card">
@@ -650,10 +652,7 @@ const shots = {};
 for (const state of states) {
 	for (const palette of ["light", "dark"]) {
 		const page = await browser.newPage({ viewport: { width: VIEWPORT[0], height: VIEWPORT[1] }, deviceScaleFactor: SCALE });
-		await page.setContent(sceneHtml({ sheets, productCss, state: state.css }), { waitUntil: "load" });
-		await page.evaluate((dark) => {
-			if (dark) document.body.dataset.dsDarkTheme = "";
-		}, palette === "dark");
+		await page.setContent(sceneHtml({ sheets, productCss, state: state.css, dark: palette === "dark" }), { waitUntil: "load" });
 		const matched = await page.locator(PREVIEW_SELECTOR).count();
 		if (matched !== 1) throw new Error(`${PREVIEW_SELECTOR} matched ${matched} elements`);
 		const filter = await page.evaluate(() => getComputedStyle(document.getElementById("preview")).backdropFilter);
