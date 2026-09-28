@@ -167,6 +167,28 @@ function parseBlobs(value) {
 	});
 }
 
+/**
+ * Resolve one level of `var(--token)` indirection inside a token table. The
+ * theme spells the menu family through the product's own alias
+ * (`--dsw-specific-menu: var(--dsw-menu-surface-fill)`), so a stack that
+ * consumes either token has to measure the colour the pair actually composites
+ * to rather than the literal text of one declaration.
+ * @param table - token name to declared value.
+ * @returns the table with single-var values replaced by their referent.
+ */
+function resolveAliases(table) {
+	const out = { ...table };
+	for (const [key, value] of Object.entries(out)) {
+		const m = value.match(/^var\(\s*(--[\w-]+)\s*\)$/);
+		if (!m) continue;
+		const target = out[m[1]];
+		if (target === undefined) throw new Error(`${key} aliases missing token ${m[1]}`);
+		if (/^var\(/.test(target)) throw new Error(`${key} aliases ${m[1]}, which is itself an alias`);
+		out[key] = target;
+	}
+	return out;
+}
+
 /** Pull the three sheets this harness needs out of a build. */
 function parseBuild(styles) {
 	const aurora = blocks(styles["dsh-liquid-glass-theme/aurora"]);
@@ -175,7 +197,7 @@ function parseBuild(styles) {
 	const out = { tokens: {}, aurora: {} };
 	for (const [sel, body] of tokens) {
 		const key = sel === "body" ? "light" : "dark";
-		out.tokens[key] = Object.fromEntries(Object.entries(decls(body)));
+		out.tokens[key] = resolveAliases(Object.fromEntries(Object.entries(decls(body))));
 	}
 	for (const [sel, body] of aurora) {
 		const dark = sel.includes("dark");

@@ -27,7 +27,7 @@
  *   trap: filter on the card       — the pre-fix shape, for the regression story
  *   shipped minus stacking context — why `z-index: 0` is load-bearing
  *   no card filter at all          — mechanism control (menu at full strength)
- *   menu fill at 0.94              — the naive token fix: hides, does not blur
+ *   opaque menu fill at 0.94        — an opaque fill hides the backdrop, it does not blur it
  *
  * The backdrop behind the card is a 2px stripe field over the real aurora, so
  * "blurred" is a number rather than an opinion; the conversation panel analogue
@@ -401,7 +401,7 @@ const VARIANTS = [
 		"[data-composer-card]::before{display:none !important}"],
 	["shipped minus stacking context", "[data-composer-card]{z-index:auto !important}"],
 	["no card filter at all", `[data-composer-card]{z-index:auto !important}[data-composer-card]::before{display:none !important}`],
-	["menu fill at 0.94 (naive fix)", "body{--dsw-menu-surface-fill:rgba(249,252,254,0.94) !important}"],
+	["opaque menu fill at 0.94", "body{--dsw-menu-surface-fill:rgba(249,252,254,0.94) !important}"],
 	["material blur deleted", "#material{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}"]
 ];
 
@@ -466,7 +466,7 @@ for (const [name, override] of VARIANTS) {
 		`${(ratio * 100).toFixed(0)}%`.padEnd(16) +
 		`${e.card.rgb.map((v) => v.toFixed(0)).join(",")}`.padEnd(18) +
 		`${applied.fixedAt.x},${applied.fixedAt.y}` +
-		(name === "shipped" ? `   [card: ${applied.card || "none"}] [::before: ${applied.pseudo || "none"}] [material: ${applied.material || "none"}]` : "")
+		(name === "shipped" ? `   [card: ${applied.card || "none"}] [::before: ${applied.pseudo || "none"}] [material: ${applied.material || "none"}] [fill: ${applied.fill}]` : "")
 	);
 	rows.push({ name, hf: e, ratio, fixedAtOrigin, rgb: e.card.rgb, image: img, ws: { ...applied } });
 	await page.close();
