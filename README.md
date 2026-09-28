@@ -5,8 +5,9 @@ DSH Web 界面的液态玻璃皮肤：极光渐变背景 + 半透明玻璃表面
 ## 特性
 
 - **全量 `--dsw-*` 令牌重映射**（21 个 × 亮/暗），纯标准 CSS，零哈希选择器
-- **浮动输入框与交互卡片磨砂玻璃（`backdrop-filter`）**：为 `[data-composer-card]` 及交互浮层注入轻度高斯模糊（6px blur + 180% saturation），历史内容穿过输入框下方时被柔和虚化，消除字迹锐利重叠的同时保留极高的半透明通透与光影流动感
-- **全屏右侧边栏（最大化）整屏磨砂**：右栏的 `fullscreen` 呈现是铺满视口（`position:fixed;inset:0;z-index:40`）并沿用 `bg-base` 的面板，而 `bg-base` 的 alpha 是按「框架 + 会话根」两层消费校准的 —— 这第三层大面积消费者压住的是**正文**，底下字迹会直接叠上来。只对该面板注入 `blur(16px) saturate(150%)`：全局通透度不动，被盖住的内容被虚化到不可读（`body [data-sidebar-right-panel="fullscreen"]` 用 (0,1,1) 压过产物的 `.class` 规则，不依赖样式表注入顺序；`data-sidebar-right-panel` 是稳定产品钩子而非哈希类名）
+- **浮动输入框与交互卡片磨砂玻璃（`backdrop-filter`）**：为输入框卡片（皮肤落在 `::before` 上，原因见下一条）及交互提示卡注入轻度高斯模糊（6px blur + 180% saturation），历史内容穿过输入框下方时被柔和虚化，消除字迹锐利重叠的同时保留极高的半透明通透与光影流动感
+- **输入框那层磨砂画在 `::before` 上，不画在卡片上（踩过坑）**：容器上的 `backdrop-filter` 除过滤之外还有两个副作用 —— 它形成 **backdrop root**（把后代的 backdrop 收窄到容器内部画过的东西），并且成为 fixed/absolute 后代的**包含块**。输入框卡片两样都躲不开，因为它不是叶子：它承载 `conversation.input.overlay` 槽位，`/` 与 `@` 触发菜单就渲染在它内部（`MenuSurface` 的 `.surface` 内联渲染，只有 darwin 的 `.backing` 走 portal），而卡片自己的 Tooltip 气泡是视口坐标的 `position: fixed` 且 `portal` 默认为 false（线上 bundle 实测）。于是菜单自己的 `blur(40px)` 材料无从过滤：背景以 58% 填充的**透光率、原样清晰**地穿过菜单 —— `tools/menu-blur.mjs` 实测菜单区高频能量是未过滤背景的 **43%**（≈ 1−0.58），把材料的 blur 删掉数字一模一样；同时卡片内一个 `position: fixed` 探针落在卡片原点 **320,672** 而不是 `0,0`。把过滤移到 `::before` 后两个副作用都消失：卡片照旧磨砂（0.4%）、菜单恢复模糊（**2%**）、fixed 后代回到视口。填充仍留在卡片上（主题只虚化背景、不动产品令牌），所以伪元素自己不画底色 —— 它的 backdrop 里已经含了卡片填充，再画一遍等于叠两次；判定里有一行专门守这条（与"过滤挂在卡片上"的旧形状比卡片区均色，漂移 1.0）。`z-index: 0` 是承重而不是洁癖：卡片只是 `position: relative`、没有堆叠上下文，`z-index: -1` 的伪元素会跑进最近祖先堆叠上下文、被会话面板自己的 `bg-base` 盖住 —— 去掉它以后卡片区高频能量从 0.13 退回未过滤的 **15.24**，与"干脆没有过滤"那一行完全相同；`isolation: isolate` 也能定住层级，但它本身就是 backdrop root，正是要拆掉的东西。只改了输入框卡片：另外三个提示卡框架是静态元素、内部没有菜单也没有 fixed 后代，给它们上伪元素就得先把它们变成定位元素 —— 没有对应的 bug 就不做这个包含块变更
+- **全屏右侧边栏（最大化）整屏磨砂**：右栏的 `fullscreen` 呈现铺满视口（`.panel` 绝对定位贴住框架右缘、宽 `100vw`，dockkit 的 dock 层由 `--dsh-dockkit-dock-layer: 40` 抬起）并沿用 `bg-base` 的面板，而 `bg-base` 的 alpha 是按「框架 + 会话根」两层消费校准的 —— 这第三层大面积消费者压住的是**正文**，底下字迹会直接叠上来。只对该面板注入 `blur(16px) saturate(150%)`：全局通透度不动，被盖住的内容被虚化到不可读（`body [data-sidebar-right-panel="fullscreen"]` 用 (0,1,1) 压过产物的 `.class` 规则，不依赖样式表注入顺序；`data-sidebar-right-panel` 是稳定产品钩子而非哈希类名）
 - **改动文件 diff 悬停浮层磨砂**：改动文件卡片（turn tail）悬停某一行时弹出的对比浮层，是 `bg-layer-1` 的一张纸（亮 0.55 / 暗 0.40），而它浮在**这一轮对话的正文之上** —— 这个令牌是按「站在内容后面的面板」校准的，于是 diff 行和底下的正文字迹直接互相穿插，两层字叠着没法读。修法与全屏侧边栏同源：只虚化背景，令牌不动。12px 是实测曲线的拐点（真实 Chromium、极光 seed 7、亮暗双色、`tools/preview-glass.mjs`）：被盖住内容在卡片内的**最坏透出**从亮 2.84:1 / 暗 5.83:1 掉到 1.16 / 1.32；亮色下卡片背后极光的**大尺度变化**仍保留「无卡片」时的 51% 振幅 —— 卡片是半透明的，不是一块板子（暗色下那块背景本来就是平的，粗尺度 sd 只有 0.004，没有可透的结构，工具这里直接标 `flat`，而不是拿两个近零数相除给一个看着像结论的比值）；6px 还会把正文留成看得出笔画的糊影（1.35 / 1.75），20px 只多买 0.04（亮）/ 0.08（暗）的抑制、却要再让出 4 个点的极光。浮层自己的 diff 正文一点没动（最弱行类亮 3.1 / 暗 6.4，前后一致），因为 `backdrop-filter` 只画元素背后的东西。钩子用预览根上的稳定属性 `data-changes-hover-preview`，靠 `:has()` 反向选中原件 portal 到 `document.body` 的那张卡（那张卡的类名是构建哈希，产物自己的样式表也用这个写法：`:has(> [data-code-block-banner])`）；`body >` 前缀把规则钉死在 portal 出来的那张卡上 —— 光写 `:has()` 会连 `body` 一起匹配，等于把整个应用糊掉
 - **极光背景**：`body` 渐变底 + `body::before` 固定光斑层，内容滚动时光斑不动
 - **极光几何与色相每次加载重掷**：几何收敛到**一个旋钮** `TRAVEL`（0–1）—— 每个光斑在作色锚点 `at` 周围、按「满行程 `reach` × TRAVEL」取随机数，半径与淡出停点也按 TRAVEL 收缩（`TRAVEL = 0` 几何完全钉死、只剩色相变化，`= 1` 为满行程）。色相走**整体相干旋转**：`PALETTE_HUE` 一次滚出 ±30° 加到全部光斑，`BLOB_HUE` 再给每斑 ±7° 偏移，饱和度与亮度取自作色值、不参与旋转，alpha 与叠放顺序固定。亮暗共用同一次掷点，切主题不会重新洗牌。当前 `TRAVEL = 0.35`，实测相邻两次加载的逐点覆盖差 0.052（满行程 0.099、只换色 0）、光团质心位移 4.9% 视口（满行程 10.1%）、画面平均覆盖 0.066–0.110、死区 42%–67%（满行程为 0.030–0.128 与 29%–81%）—— 比满行程明显收敛，同时保住"色块真的会走位"。色相带宽由配色识别度而非对比度决定：配对实测（同几何、色相开/关，200 次构建）旋转对正文对比度平均中性（亮 100.7%、暗 98.7%，任何一层表面栈的均值位移都在 1.7% 以内），当前 ±30° 下最弱会话栈仍有暗 10.34 / 亮 11.06，离 WCAG AA 的 4.5 底线很远 —— 所以带宽是留给识别度的额度。限制它的是绿色：再宽一转，557.7 nm 的绿就滑向黄绿或青绿、630.0 nm 的红开始偏橙，越出这几条谱线所属的色域。只在"构建样式表"时掷一次，页面加载期间数值冻结 —— 没有任何动画
@@ -34,6 +35,7 @@ lib/index.js             # 宿主半（空 apply，仅为加载器占位）
 lib/client.js            # 浏览器半：令牌表 + 极光 + 玻璃表面 + diff 浮层 + Trajectory 表面处理，ctx.effect 生命周期挂载
 tools/aurora.mjs         # 极光测量/渲染工具：加载真实 client 模块 → 求值产出的 CSS → 合成真实表面栈 → 对比度/覆盖数字 + PNG
 tools/preview-glass.mjs  # diff 悬停浮层工具：真实 Chromium 里挂真实产物样式 + 真实 DOM → 透出/对比度/通透度数字 + 对照 PNG
+tools/menu-blur.mjs      # 输入框磨砂守卫：真实 Chromium 里量容器上的 backdrop-filter 是否吃掉子菜单的模糊、是否平移 fixed 后代
 ```
 
 ## 复现测量
@@ -65,4 +67,16 @@ node tools/preview-glass.mjs --seed=7
 node tools/preview-glass.mjs --states="none|backdrop-filter:blur(6px) saturate(180%)|backdrop-filter:blur(12px) saturate(160%)|backdrop-filter:blur(20px) saturate(150%)"
 ```
 
-工具默认从 `DSH_PROFILE_DIR`（或 `$DSH_HOME/profiles/$DSH_PROFILE`）里解析产物包，所以量的是**正在跑的那一份**产物；Chromium 走 `$CHROME_PATH`，默认取 ms-playwright 缓存里的 headless shell。
+工具都从**正在运行的 dsh 安装**解析产物包（`@deepseek-ai/dsh` 在 profile 里的位置再往下解析），所以量的是**正在跑的那一份**产物。不要改回从 profile 的扁平 `node_modules` 解析：两者不等价 —— 本机 `~/.my-dsh/profiles/node_modules/@deepseek-ai/dsh-client-ui-primitives` 是一条指向 npx 缓存的过期软链（0.1.0-rc.6，那个版本还没有 `MenuSurface`），照它量会量到一个远古菜单，这正是 `tools/menu-blur.mjs` 写完之后踩到的坑；它会把解析到的版本打印出来，便于核对。Chromium 走 `$CHROME_PATH`，默认取 ms-playwright 缓存里的 headless shell。
+
+输入框那一处由 `tools/menu-blur.mjs` 量，因为容器上 `backdrop-filter` 的两个副作用同样算不出来（合成器特性 + 包含块）。场景按真实结构搭：会话面板画 `bg-base`、卡片在面板内、`MenuSurface` 的 `.surface` 是卡片的 DOM 后代、一个 `position: fixed` 探针代表卡片内的 Tooltip 气泡；背景是 2px 条纹叠真实极光，指标是区域内的横向高频能量 —— 模糊生效时趋近 0，"背景原样穿过"时等于填充的透光率。
+
+```sh
+# 出货状态 + 五个对照：坑形（过滤挂卡片）、去掉堆叠上下文、去掉过滤、把菜单填充改回 0.94、删掉材料的 blur
+node tools/menu-blur.mjs
+
+# 换模块或换种子
+node tools/menu-blur.mjs --file=lib/client.js --seed=7
+```
+
+它给出四行判定，出货行必须全过：卡片仍然磨砂、菜单恢复模糊、fixed 后代回到视口、卡片颜色与改动前一致（对照的是"过滤挂在卡片上"那一行，也就是要保留的那个观感）。六行对照落在 `.scratch/menu-blur-sheet.png`，顺序与表格相同。

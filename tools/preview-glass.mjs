@@ -79,14 +79,18 @@ const PROFILE = process.env.DSH_PROFILE_DIR ?? path.join(process.env.DSH_HOME ??
 /* ------------------------------------------------------------- product -- */
 
 /**
- * Resolve a package through the installed profile, so the harness styles what
- * the running app actually serves rather than a copy.
+ * Resolve a package through the running dsh install, so the harness styles what
+ * the running app actually serves rather than a copy. Resolving from the
+ * profile's flat `node_modules` instead is not equivalent: a stale symlink
+ * there (`~/.my-dsh/profiles/node_modules/@deepseek-ai/dsh-client-ui-primitives`
+ * → an npx cache at 0.1.0-rc.6 on this machine) silently pins an old package,
+ * which is what `tools/menu-blur.mjs` walked into.
  * @param spec - package subpath to resolve.
  * @returns the absolute path.
  */
 function resolveFromProfile(spec) {
-	const require = createRequire(path.join(PROFILE, "package.json"));
-	return require.resolve(spec);
+	const fromDsh = createRequire(createRequire(path.join(PROFILE, "package.json")).resolve("@deepseek-ai/dsh/package.json"));
+	return fromDsh.resolve(spec);
 }
 
 /** The shipped web assets directory (static CSS) and the two bundles carrying runtime CSS. */
