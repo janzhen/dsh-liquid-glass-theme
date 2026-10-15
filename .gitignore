@@ -1,0 +1,15 @@
+# Node
+node_modules/
+
+# Tool output. All three tools under tools/ take --out and default it to
+# .scratch, so this is where the PNG sheets, the rendered variant bundles and
+# the saved baseline that `aurora.mjs compare` reads back all land. The README
+# points at .scratch/menu-blur-sheet.png as the menu-blur control sheet.
+.scratch/
+
+# playwright-cli session artifacts (console logs, page snapshots) from the
+# real-GUI measurements the README describes for the right sidebar.
+.playwright-cli/
+
+# macOS
+.DS_Store
