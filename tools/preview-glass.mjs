@@ -56,8 +56,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { browserPath, loadChromium, resolveProduct } from "./environment.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -74,35 +74,19 @@ const SCALE = 2;
 /* Below this card-free coarse luminance sd the backdrop behind the card has no
  * large-scale structure to transmit, so the retained fraction is not reported. */
 const CARD_FREE_SD_FLOOR = 0.01;
-const PROFILE = process.env.DSH_PROFILE_DIR ?? path.join(process.env.DSH_HOME ?? "", "profiles", process.env.DSH_PROFILE ?? "web");
 
 /* ------------------------------------------------------------- product -- */
 
-/**
- * Resolve a package through the running dsh install, so the harness styles what
- * the running app actually serves rather than a copy. Resolving from the
- * profile's flat `node_modules` instead is not equivalent: a stale symlink
- * there (`~/.my-dsh/profiles/node_modules/@deepseek-ai/dsh-client-ui-primitives`
- * → an npx cache at 0.1.0-rc.6 on this machine) silently pins an old package,
- * which is what `tools/menu-blur.mjs` walked into.
- * @param spec - package subpath to resolve.
- * @returns the absolute path.
- */
-function resolveFromProfile(spec) {
-	const fromDsh = createRequire(createRequire(path.join(PROFILE, "package.json")).resolve("@deepseek-ai/dsh/package.json"));
-	return fromDsh.resolve(spec);
-}
-
 /** The shipped web assets directory (static CSS) and the two bundles carrying runtime CSS. */
 function product() {
-	const frontend = path.dirname(resolveFromProfile("@deepseek-ai/dsh-web-frontend/package.json"));
+	const frontend = path.dirname(resolveProduct("@deepseek-ai/dsh-web-frontend/package.json"));
 	const assets = path.join(frontend, "dist", "assets");
 	const files = fs.readdirSync(assets);
 	const pick = (re) => path.join(assets, files.find((f) => re.test(f)));
 	return {
 		static: [pick(/^index-.*\.css$/), pick(/^vendor-.*\.css$/)],
-		theme: resolveFromProfile("@deepseek-ai/dsh-client-ui-theme/package.json").replace(/package\.json$/, "lib/client.js"),
-		deliverables: resolveFromProfile("@deepseek-ai/dsh-client-ui-deliverables/package.json").replace(/package\.json$/, "lib/client.js")
+		theme: resolveProduct("@deepseek-ai/dsh-client-ui-theme/package.json").replace(/package\.json$/, "lib/client.js"),
+		deliverables: resolveProduct("@deepseek-ai/dsh-client-ui-deliverables/package.json").replace(/package\.json$/, "lib/client.js")
 	};
 }
 
@@ -651,13 +635,8 @@ if (!statesFlag && shipped && !shipped.includes(PREVIEW_SELECTOR)) {
 	throw new Error(`the preview sheet's selector is not ${PREVIEW_SELECTOR}`);
 }
 
-const { chromium } = await import(process.env.PLAYWRIGHT ?? "/opt/homebrew/lib/node_modules/@playwright/cli/node_modules/playwright/index.mjs");
-const browser = await chromium.launch({
-	executablePath: process.env.CHROME_PATH ?? path.join(
-		process.env.HOME,
-		"Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell"
-	)
-});
+const { chromium } = await loadChromium();
+const browser = await chromium.launch({ executablePath: browserPath() });
 
 console.log(`\nfile ${path.relative(ROOT, file)} — aurora seed ${seed}`);
 console.log(`card  ${PREVIEW_SELECTOR}\n`);

@@ -12,6 +12,9 @@
   "engines": {
     "node": ">=20"
   },
+  "devDependencies": {
+    "playwright": "1.55.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

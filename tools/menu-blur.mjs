@@ -40,6 +40,18 @@
  * an npx cache at 0.1.0-rc.6) predates `MenuSurface` entirely, so it silently
  * measures an ancient menu. Versions are printed so that stays visible.
  *
+ * MenuSurface is compiled into the shell bundle now (the primitives package it
+ * used to ship in is gone as of 0.2.1), so its rules live in
+ * `dsh-web-frontend/dist/assets/index-*.css` under build hashes
+ * (`_surface_ri079_1`, `_material_ri079_21`, …). The scene does not hard-code
+ * those and does not restate the rules either: it reads the hashes out of the
+ * bundle's own constants, grouped by hash, and filters the static sheet down to
+ * the rules that address them — the same by-role lookup
+ * `tools/fullscreen-sheet.mjs` does for dockkit's cells. The element itself also
+ * publishes a stable hook (`data-menu-material="translucent"`, and
+ * `aria-hidden` on the material child), which the scene sets so a check can
+ * address the menu by attribute rather than by class.
+ *
  * Usage:
  *   node tools/menu-blur.mjs
  *   node tools/menu-blur.mjs --file=lib/client.js --seed=7 --out=.scratch --tag=menu
@@ -47,15 +59,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { browserPath, loadChromium, resolveProduct } from "./environment.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 
 /** Facet name the module mounts its glass sheet under. */
 const GLASS_SHEET = "dsh-liquid-glass-theme/glass";
-const PROFILE = process.env.DSH_PROFILE_DIR ?? path.join(process.env.DSH_HOME ?? "", "profiles", process.env.DSH_PROFILE ?? "web");
 
 const VIEWPORT = [1440, 900];
 /* 2px stripes have to survive to the screenshot to be measurable at all. */
@@ -68,33 +79,69 @@ MENU.top = CARD.top - 4 - MENU.height;
 /* ------------------------------------------------------------- product -- */
 
 /**
- * Resolve a package through the running dsh install rather than the profile's
- * flat node_modules (see the header: that path can hold a stale symlink).
- * @param spec - package subpath to resolve.
- * @returns the absolute path.
+ * The role → class map of one CSS module in the shell bundle, found by the
+ * readable half of the `_name_hash_line` constants the product's build emits
+ * (`"surface": "_surface_ri079_1"`). Several modules hash this way, so the map
+ * is required to declare every requested role.
+ * @param js - the shell bundle text.
+ * @param roles - the class roles the scene needs.
+ * @returns role → hashed class.
  */
-function resolveProduct(spec) {
-	const fromDsh = createRequire(createRequire(path.join(PROFILE, "package.json")).resolve("@deepseek-ai/dsh/package.json"));
-	return fromDsh.resolve(spec);
+function classGroup(js, roles) {
+	const groups = new Map();
+	const re = /"(_([A-Za-z]+)_([a-z0-9]{5})_\d+)"/g;
+	let m;
+	while ((m = re.exec(js))) {
+		if (!groups.has(m[3])) groups.set(m[3], new Map());
+		groups.get(m[3]).set(m[2], m[1]);
+	}
+	for (const map of groups.values()) {
+		if (roles.every((role) => map.has(role))) return Object.fromEntries(map);
+	}
+	throw new Error(`no CSS-module group in the shell bundle declares ${roles.join(", ")}`);
+}
+
+/**
+ * The rules of a sheet that address any of these classes, so the scene gets the
+ * product's own declarations for exactly the elements it builds instead of a
+ * copy. The menu rules are top-level (no `@media` wrapper), which is what makes
+ * a flat selector scan enough here.
+ * @param css - the shell's static sheet.
+ * @param classes - hashed class names to keep.
+ * @returns the concatenated rules.
+ */
+function rulesFor(css, classes) {
+	const out = [];
+	const re = /([^{}]+)\{([^{}]*)\}/g;
+	let m;
+	while ((m = re.exec(css))) {
+		if (classes.some((name) => m[1].includes("." + name))) out.push(m[0]);
+	}
+	return out.join("\n");
 }
 
 /**
  * The installed packages this scene needs, with their versions.
- * @returns package directory, version, and the CSS text each contributes.
+ * @returns versions, the product CSS text, and MenuSurface's class roles.
  */
 function product() {
 	const dir = (spec) => path.dirname(resolveProduct(`${spec}/package.json`));
 	const read = (spec, rel) => fs.readFileSync(path.join(dir(spec), rel), "utf8");
 	const version = (spec) => JSON.parse(read(spec, "package.json")).version;
-	const specs = ["@deepseek-ai/dsh-client-ui-theme", "@deepseek-ai/dsh-client-ui-primitives"];
+	const specs = ["@deepseek-ai/dsh-client-ui-theme", "@deepseek-ai/dsh-web-frontend"];
+	const assets = path.join(dir(specs[1]), "dist", "assets");
+	const files = fs.readdirSync(assets);
+	const staticCss = files.filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(assets, name), "utf8")).join("\n");
+	const js = files.filter((name) => name.endsWith(".js")).map((name) => fs.readFileSync(path.join(assets, name), "utf8")).join("\n");
+	const menu = classGroup(js, ["surface", "material", "backing", "compact"]);
 	return {
 		versions: Object.fromEntries(specs.map((spec) => [spec, version(spec)])),
 		/* The theme bundle inlines the token sheets (design-platform.css carries
 		 * --dsw-menu-surface-fill / --dsw-specific-menu, gradient-shadow-text.css
-		 * carries --dsw-menu-backdrop-filter); MenuSurface ships as a plain
-		 * .module.css file whose selectors are unhashed here, which is why the
-		 * scene can use the real class names. */
-		css: [embeddedCss(path.join(dir(specs[0]), "lib/client.js")), read(specs[1], "lib/MenuSurface.module.css")].join("\n")
+		 * carries --dsw-menu-backdrop-filter); MenuSurface's own rules come from
+		 * the shell's compiled sheet, filtered to the classes the scene mounts. */
+		css: [embeddedCss(path.join(dir(specs[0]), "lib/client.js")), rulesFor(staticCss, Object.values(menu))].join("\n"),
+		menu
 	};
 }
 
@@ -334,7 +381,7 @@ function crop(img, rect) {
  * @param args - product CSS, theme sheets, and this variant's override.
  * @returns the HTML document.
  */
-function sceneHtml({ productCss, themeCss, override }) {
+function sceneHtml({ productCss, themeCss, menu, override }) {
 	return `<!doctype html><html><head><meta charset="utf-8"><style>
 ${productCss}
 ${themeCss}
@@ -361,9 +408,9 @@ ${override}
 <div id="panel">
   <div id="card" data-composer-card>
     <div id="anchor">
-      <div id="surface" class="surface" data-menu-material="translucent" data-trigger-menu
+      <div id="surface" class="${menu.surface}" data-menu-material="translucent" data-trigger-menu
            style="--dsh-menu-anchor: --probe-menu">
-        <div id="material" class="material" aria-hidden="true"></div>
+        <div id="material" class="${menu.material}" aria-hidden="true"></div>
         <div class="row on"></div><div class="row"></div><div class="row"></div>
         <div class="row"></div><div class="row"></div><div class="row"></div>
       </div>
@@ -405,13 +452,8 @@ const VARIANTS = [
 	["material blur deleted", "#material{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}"]
 ];
 
-const { chromium } = await import(process.env.PLAYWRIGHT ?? "/opt/homebrew/lib/node_modules/@playwright/cli/node_modules/playwright/index.mjs");
-const browser = await chromium.launch({
-	executablePath: process.env.CHROME_PATH ?? path.join(
-		process.env.HOME,
-		"Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell"
-	)
-});
+const { chromium } = await loadChromium();
+const browser = await chromium.launch({ executablePath: browserPath() });
 
 const px = (v) => Math.round(v * SCALE);
 const inset = 14;
@@ -443,12 +485,13 @@ const COLOUR_TOLERANCE = 2;
 
 console.log(`\nfile ${path.relative(ROOT, file)} — aurora seed ${seed}`);
 for (const [spec, version] of Object.entries(productFiles.versions)) console.log(`product ${spec}@${version}`);
+console.log(`menu surface .${productFiles.menu.surface} · material .${productFiles.menu.material}`);
 console.log("\nvariant".padEnd(34) + "hf sharp/card/menu".padEnd(24) + "menu vs sharp".padEnd(16) + "card rgb".padEnd(18) + "fixed@");
 
 const rows = [];
 for (const [name, override] of VARIANTS) {
 	const page = await browser.newPage({ viewport: { width: VIEWPORT[0], height: VIEWPORT[1] }, deviceScaleFactor: SCALE });
-	await page.setContent(sceneHtml({ productCss: productFiles.css, themeCss, override }), { waitUntil: "load" });
+	await page.setContent(sceneHtml({ productCss: productFiles.css, themeCss, menu: productFiles.menu, override }), { waitUntil: "load" });
 	const applied = await page.evaluate(() => ({
 		card: getComputedStyle(document.getElementById("card")).backdropFilter,
 		pseudo: getComputedStyle(document.getElementById("card"), "::before").backdropFilter,
